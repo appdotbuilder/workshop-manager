@@ -1,61 +1,98 @@
 
+import { db } from '../db';
+import { initialChecksTable, serviceOrdersTable } from '../db/schema';
 import { type CreateInitialCheckInput, type InitialCheck } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function createInitialCheck(input: CreateInitialCheckInput, mechanicId: number): Promise<InitialCheck> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to record initial vehicle check results by mechanic.
-  // Should validate service order exists, mechanic permissions, and store detailed check data.
-  return Promise.resolve({
-    id: 1,
-    service_order_id: input.service_order_id,
-    mechanic_id: mechanicId,
-    headlights: input.headlights,
-    horn: input.horn,
-    ac_pressure: input.ac_pressure,
-    ac_temperature: input.ac_temperature,
-    ac_refrigerant_level: input.ac_refrigerant_level,
-    ac_component_condition: input.ac_component_condition,
-    radiator_coolant_level: input.radiator_coolant_level,
-    radiator_fan_condition: input.radiator_fan_condition,
-    radiator_thermostat: input.radiator_thermostat,
-    tuneup_rpm: input.tuneup_rpm,
-    tuneup_engine_light: input.tuneup_engine_light,
-    tuneup_spark_plugs: input.tuneup_spark_plugs,
-    notes: input.notes,
-    completed_at: new Date(),
-    created_at: new Date()
-  } as InitialCheck);
-}
+export const createInitialCheck = async (input: CreateInitialCheckInput): Promise<InitialCheck> => {
+  try {
+    // Verify service order exists
+    const serviceOrder = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.id, input.service_order_id))
+      .execute();
 
-export async function getInitialCheckByServiceOrder(serviceOrderId: number): Promise<InitialCheck | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch initial check data for a specific service order.
-  // Should include mechanic information and all recorded check results.
-  return Promise.resolve(null);
-}
+    if (serviceOrder.length === 0) {
+      throw new Error('Service order not found');
+    }
 
-export async function updateInitialCheck(id: number, input: Partial<CreateInitialCheckInput>): Promise<InitialCheck> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update existing initial check data.
-  // Should validate mechanic permissions and maintain audit trail.
-  return Promise.resolve({
-    id,
-    service_order_id: 1,
-    mechanic_id: 1,
-    headlights: input.headlights ?? true,
-    horn: input.horn ?? true,
-    ac_pressure: input.ac_pressure ?? null,
-    ac_temperature: input.ac_temperature ?? null,
-    ac_refrigerant_level: input.ac_refrigerant_level ?? null,
-    ac_component_condition: input.ac_component_condition ?? null,
-    radiator_coolant_level: input.radiator_coolant_level ?? null,
-    radiator_fan_condition: input.radiator_fan_condition ?? null,
-    radiator_thermostat: input.radiator_thermostat ?? null,
-    tuneup_rpm: input.tuneup_rpm ?? null,
-    tuneup_engine_light: input.tuneup_engine_light ?? null,
-    tuneup_spark_plugs: input.tuneup_spark_plugs ?? null,
-    notes: input.notes ?? null,
-    completed_at: new Date(),
-    created_at: new Date()
-  } as InitialCheck);
-}
+    // Check if initial check already exists for this service order
+    const existingCheck = await db.select()
+      .from(initialChecksTable)
+      .where(eq(initialChecksTable.service_order_id, input.service_order_id))
+      .execute();
+
+    if (existingCheck.length > 0) {
+      throw new Error('Initial check already exists for this service order');
+    }
+
+    // Insert initial check record
+    const result = await db.insert(initialChecksTable)
+      .values({
+        service_order_id: input.service_order_id,
+        fluid_levels_check: input.fluid_levels_check,
+        battery_condition: input.battery_condition,
+        tire_condition: input.tire_condition,
+        brake_system_check: input.brake_system_check,
+        lights_check: input.lights_check,
+        engine_visual_inspection: input.engine_visual_inspection,
+        additional_findings: input.additional_findings,
+        checked_by_id: input.checked_by_id
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Initial check creation failed:', error);
+    throw error;
+  }
+};
+
+export const getInitialCheckByServiceOrder = async (serviceOrderId: number): Promise<InitialCheck | null> => {
+  try {
+    const result = await db.select()
+      .from(initialChecksTable)
+      .where(eq(initialChecksTable.service_order_id, serviceOrderId))
+      .execute();
+
+    return result.length > 0 ? result[0] : null;
+  } catch (error) {
+    console.error('Failed to get initial check:', error);
+    throw error;
+  }
+};
+
+export const updateInitialCheck = async (id: number, input: Partial<CreateInitialCheckInput>): Promise<InitialCheck> => {
+  try {
+    // Verify initial check exists
+    const existingCheck = await db.select()
+      .from(initialChecksTable)
+      .where(eq(initialChecksTable.id, id))
+      .execute();
+
+    if (existingCheck.length === 0) {
+      throw new Error('Initial check not found');
+    }
+
+    // Update initial check record
+    const result = await db.update(initialChecksTable)
+      .set({
+        fluid_levels_check: input.fluid_levels_check,
+        battery_condition: input.battery_condition,
+        tire_condition: input.tire_condition,
+        brake_system_check: input.brake_system_check,
+        lights_check: input.lights_check,
+        engine_visual_inspection: input.engine_visual_inspection,
+        additional_findings: input.additional_findings
+      })
+      .where(eq(initialChecksTable.id, id))
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Initial check update failed:', error);
+    throw error;
+  }
+};

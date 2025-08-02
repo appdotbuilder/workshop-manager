@@ -1,47 +1,114 @@
 
+import { db } from '../db';
+import { costEstimationsTable, serviceOrdersTable } from '../db/schema';
 import { type CreateCostEstimationInput, type CostEstimation } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function createCostEstimation(input: CreateCostEstimationInput, estimatorId: number): Promise<CostEstimation> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create cost estimation with three pricing tiers.
-  // Should pull from estimation library, calculate totals, and record customer decision.
-  return Promise.resolve({
-    id: 1,
-    service_order_id: input.service_order_id,
-    estimator_id: estimatorId,
-    economical_price: input.economical_price,
-    standard_price: input.standard_price,
-    premium_price: input.premium_price,
-    selected_tier: input.selected_tier,
-    customer_decision: input.customer_decision,
-    notes: input.notes,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as CostEstimation);
-}
+export const createCostEstimation = async (input: CreateCostEstimationInput): Promise<CostEstimation> => {
+  try {
+    // Verify service order exists
+    const serviceOrder = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.id, input.service_order_id))
+      .execute();
 
-export async function getCostEstimationByServiceOrder(serviceOrderId: number): Promise<CostEstimation | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch cost estimation for a specific service order.
-  // Should include estimator information and pricing details.
-  return Promise.resolve(null);
-}
+    if (serviceOrder.length === 0) {
+      throw new Error('Service order not found');
+    }
 
-export async function updateCostEstimation(id: number, input: Partial<CreateCostEstimationInput>): Promise<CostEstimation> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update cost estimation and customer decision.
-  // Should validate estimator permissions and track decision changes.
-  return Promise.resolve({
-    id,
-    service_order_id: 1,
-    estimator_id: 1,
-    economical_price: input.economical_price ?? 0,
-    standard_price: input.standard_price ?? 0,
-    premium_price: input.premium_price ?? 0,
-    selected_tier: input.selected_tier ?? null,
-    customer_decision: input.customer_decision ?? 'PENDING',
-    notes: input.notes ?? null,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as CostEstimation);
-}
+    // Insert cost estimation record
+    const result = await db.insert(costEstimationsTable)
+      .values({
+        service_order_id: input.service_order_id,
+        economic_tier_price: input.economic_tier_price.toString(),
+        standard_tier_price: input.standard_tier_price.toString(),
+        premium_tier_price: input.premium_tier_price.toString(),
+        economic_description: input.economic_description,
+        standard_description: input.standard_description,
+        premium_description: input.premium_description,
+        estimated_by_id: input.estimated_by_id
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric and date fields back to proper types before returning
+    const estimation = result[0];
+    return {
+      ...estimation,
+      economic_tier_price: parseFloat(estimation.economic_tier_price),
+      standard_tier_price: parseFloat(estimation.standard_tier_price),
+      premium_tier_price: parseFloat(estimation.premium_tier_price),
+      estimation_date: new Date(estimation.estimation_date),
+      customer_response_date: estimation.customer_response_date ? new Date(estimation.customer_response_date) : null
+    };
+  } catch (error) {
+    console.error('Cost estimation creation failed:', error);
+    throw error;
+  }
+};
+
+export const getCostEstimationByServiceOrder = async (serviceOrderId: number): Promise<CostEstimation | null> => {
+  try {
+    const results = await db.select()
+      .from(costEstimationsTable)
+      .where(eq(costEstimationsTable.service_order_id, serviceOrderId))
+      .execute();
+
+    if (results.length === 0) {
+      return null;
+    }
+
+    const estimation = results[0];
+    return {
+      ...estimation,
+      economic_tier_price: parseFloat(estimation.economic_tier_price),
+      standard_tier_price: parseFloat(estimation.standard_tier_price),
+      premium_tier_price: parseFloat(estimation.premium_tier_price),
+      estimation_date: new Date(estimation.estimation_date),
+      customer_response_date: estimation.customer_response_date ? new Date(estimation.customer_response_date) : null
+    };
+  } catch (error) {
+    console.error('Cost estimation retrieval failed:', error);
+    throw error;
+  }
+};
+
+export const updateCostEstimationDecision = async (
+  serviceOrderId: number, 
+  decision: 'APPROVED' | 'REJECTED' | 'PENDING' | 'PARTIAL_APPROVAL',
+  chosenTier?: 'ECONOMIC' | 'STANDARD' | 'PREMIUM'
+): Promise<CostEstimation> => {
+  try {
+    const updateValues: any = {
+      customer_decision: decision,
+      customer_response_date: new Date()
+    };
+
+    if (chosenTier) {
+      updateValues.chosen_tier = chosenTier;
+    }
+
+    const result = await db.update(costEstimationsTable)
+      .set(updateValues)
+      .where(eq(costEstimationsTable.service_order_id, serviceOrderId))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error('Cost estimation not found');
+    }
+
+    const estimation = result[0];
+    return {
+      ...estimation,
+      economic_tier_price: parseFloat(estimation.economic_tier_price),
+      standard_tier_price: parseFloat(estimation.standard_tier_price),
+      premium_tier_price: parseFloat(estimation.premium_tier_price),
+      estimation_date: new Date(estimation.estimation_date),
+      customer_response_date: estimation.customer_response_date ? new Date(estimation.customer_response_date) : null
+    };
+  } catch (error) {
+    console.error('Cost estimation update failed:', error);
+    throw error;
+  }
+};

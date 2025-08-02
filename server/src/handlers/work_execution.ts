@@ -1,66 +1,176 @@
 
+import { db } from '../db';
+import { workExecutionTable, serviceOrdersTable, costEstimationsTable } from '../db/schema';
 import { type CreateWorkExecutionInput, type WorkExecution } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
-export async function createWorkExecution(input: CreateWorkExecutionInput, mechanicId: number): Promise<WorkExecution> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create work execution record following approved estimate.
-  // Should validate approved estimate exists, initialize progress tracking, and setup checklist.
-  return Promise.resolve({
-    id: 1,
-    service_order_id: input.service_order_id,
-    mechanic_id: mechanicId,
-    progress_updates: input.progress_updates,
-    new_findings: input.new_findings,
-    new_findings_evidence: input.new_findings_evidence,
-    completion_checklist: input.completion_checklist,
-    is_completed: false,
-    completed_at: null,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as WorkExecution);
-}
+export const createWorkExecution = async (input: CreateWorkExecutionInput): Promise<WorkExecution> => {
+  try {
+    // Validate service order exists
+    const serviceOrder = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.id, input.service_order_id))
+      .execute();
 
-export async function getWorkExecutionByServiceOrder(serviceOrderId: number): Promise<WorkExecution | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch work execution data for a specific service order.
-  // Should include mechanic information, progress updates, and completion status.
-  return Promise.resolve(null);
-}
+    if (serviceOrder.length === 0) {
+      throw new Error('Service order not found');
+    }
 
-export async function updateWorkExecution(id: number, input: Partial<CreateWorkExecutionInput>): Promise<WorkExecution> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update work progress, findings, and completion status.
-  // Should validate mechanic permissions and update completion timestamp when finished.
-  return Promise.resolve({
-    id,
-    service_order_id: 1,
-    mechanic_id: 1,
-    progress_updates: input.progress_updates ?? null,
-    new_findings: input.new_findings ?? null,
-    new_findings_evidence: input.new_findings_evidence ?? [],
-    completion_checklist: input.completion_checklist ?? {},
-    is_completed: false,
-    completed_at: null,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as WorkExecution);
-}
+    // Validate approved cost estimation exists
+    const costEstimation = await db.select()
+      .from(costEstimationsTable)
+      .where(
+        and(
+          eq(costEstimationsTable.service_order_id, input.service_order_id),
+          eq(costEstimationsTable.customer_decision, 'APPROVED')
+        )
+      )
+      .execute();
 
-export async function completeWorkExecution(id: number): Promise<WorkExecution> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to mark work execution as completed.
-  // Should validate all checklist items are completed and set completion timestamp.
-  return Promise.resolve({
-    id,
-    service_order_id: 1,
-    mechanic_id: 1,
-    progress_updates: null,
-    new_findings: null,
-    new_findings_evidence: [],
-    completion_checklist: {},
-    is_completed: true,
-    completed_at: new Date(),
-    created_at: new Date(),
-    updated_at: new Date()
-  } as WorkExecution);
-}
+    if (costEstimation.length === 0) {
+      throw new Error('No approved cost estimation found for this service order');
+    }
+
+    // Insert work execution record
+    const result = await db.insert(workExecutionTable)
+      .values({
+        service_order_id: input.service_order_id,
+        work_description: input.work_description,
+        parts_used: input.parts_used,
+        labor_hours: input.labor_hours.toString(),
+        completion_checklist: input.completion_checklist || {},
+        work_photos: input.work_photos || [],
+        executed_by_id: input.executed_by_id
+      })
+      .returning()
+      .execute();
+
+    const workExecution = result[0];
+    return {
+      ...workExecution,
+      labor_hours: parseFloat(workExecution.labor_hours),
+      start_date: new Date(workExecution.start_date),
+      completion_date: workExecution.completion_date ? new Date(workExecution.completion_date) : null,
+      completion_checklist: workExecution.completion_checklist as Record<string, boolean>,
+      work_photos: workExecution.work_photos as string[]
+    };
+  } catch (error) {
+    console.error('Work execution creation failed:', error);
+    throw error;
+  }
+};
+
+export const getWorkExecutionByServiceOrder = async (serviceOrderId: number): Promise<WorkExecution | null> => {
+  try {
+    const result = await db.select()
+      .from(workExecutionTable)
+      .where(eq(workExecutionTable.service_order_id, serviceOrderId))
+      .execute();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    const workExecution = result[0];
+    return {
+      ...workExecution,
+      labor_hours: parseFloat(workExecution.labor_hours),
+      start_date: new Date(workExecution.start_date),
+      completion_date: workExecution.completion_date ? new Date(workExecution.completion_date) : null,
+      completion_checklist: workExecution.completion_checklist as Record<string, boolean>,
+      work_photos: workExecution.work_photos as string[]
+    };
+  } catch (error) {
+    console.error('Failed to get work execution:', error);
+    throw error;
+  }
+};
+
+export const updateWorkExecution = async (id: number, input: Partial<CreateWorkExecutionInput>): Promise<WorkExecution> => {
+  try {
+    // Check if work execution exists
+    const existing = await db.select()
+      .from(workExecutionTable)
+      .where(eq(workExecutionTable.id, id))
+      .execute();
+
+    if (existing.length === 0) {
+      throw new Error('Work execution not found');
+    }
+
+    // Build update object with only provided fields
+    const updateData: any = {};
+    
+    if (input.work_description !== undefined) {
+      updateData.work_description = input.work_description;
+    }
+    if (input.parts_used !== undefined) {
+      updateData.parts_used = input.parts_used;
+    }
+    if (input.labor_hours !== undefined) {
+      updateData.labor_hours = input.labor_hours.toString();
+    }
+    if (input.completion_checklist !== undefined) {
+      updateData.completion_checklist = input.completion_checklist;
+    }
+    if (input.work_photos !== undefined) {
+      updateData.work_photos = input.work_photos;
+    }
+
+    const result = await db.update(workExecutionTable)
+      .set(updateData)
+      .where(eq(workExecutionTable.id, id))
+      .returning()
+      .execute();
+
+    const workExecution = result[0];
+    return {
+      ...workExecution,
+      labor_hours: parseFloat(workExecution.labor_hours),
+      start_date: new Date(workExecution.start_date),
+      completion_date: workExecution.completion_date ? new Date(workExecution.completion_date) : null,
+      completion_checklist: workExecution.completion_checklist as Record<string, boolean>,
+      work_photos: workExecution.work_photos as string[]
+    };
+  } catch (error) {
+    console.error('Work execution update failed:', error);
+    throw error;
+  }
+};
+
+export const completeWorkExecution = async (id: number): Promise<WorkExecution> => {
+  try {
+    // Check if work execution exists
+    const existing = await db.select()
+      .from(workExecutionTable)
+      .where(eq(workExecutionTable.id, id))
+      .execute();
+
+    if (existing.length === 0) {
+      throw new Error('Work execution not found');
+    }
+
+    // Mark as completed with completion date
+    const completionDate = new Date();
+    const result = await db.update(workExecutionTable)
+      .set({
+        completion_date: completionDate.toISOString().split('T')[0] // Convert to date string format
+      })
+      .where(eq(workExecutionTable.id, id))
+      .returning()
+      .execute();
+
+    const workExecution = result[0];
+    return {
+      ...workExecution,
+      labor_hours: parseFloat(workExecution.labor_hours),
+      start_date: new Date(workExecution.start_date),
+      completion_date: workExecution.completion_date ? new Date(workExecution.completion_date) : null,
+      completion_checklist: workExecution.completion_checklist as Record<string, boolean>,
+      work_photos: workExecution.work_photos as string[]
+    };
+  } catch (error) {
+    console.error('Work execution completion failed:', error);
+    throw error;
+  }
+};

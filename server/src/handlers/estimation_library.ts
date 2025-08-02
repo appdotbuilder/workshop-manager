@@ -1,75 +1,136 @@
 
+import { db } from '../db';
+import { estimationLibraryTable } from '../db/schema';
 import { type CreateEstimationLibraryInput, type EstimationLibrary } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
-export async function createEstimationLibraryItem(input: CreateEstimationLibraryInput): Promise<EstimationLibrary> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create estimation library item with multi-tier pricing.
-  // Should validate pricing tiers, categorize as service or part, and set active status.
-  return Promise.resolve({
-    id: 1,
-    name: input.name,
-    category: input.category,
-    description: input.description,
-    economical_price: input.economical_price,
-    standard_price: input.standard_price,
-    premium_price: input.premium_price,
-    is_service: input.is_service,
-    is_active: input.is_active,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as EstimationLibrary);
-}
+export const createEstimationLibraryItem = async (input: CreateEstimationLibraryInput): Promise<EstimationLibrary> => {
+  try {
+    const result = await db.insert(estimationLibraryTable)
+      .values({
+        service_type: input.service_type,
+        service_name: input.service_name,
+        economic_price: input.economic_price.toString(),
+        standard_price: input.standard_price.toString(),
+        premium_price: input.premium_price.toString(),
+        estimated_labor_hours: input.estimated_labor_hours.toString(),
+        description: input.description,
+        created_by_id: input.created_by_id
+      })
+      .returning()
+      .execute();
 
-export async function getEstimationLibrary(): Promise<EstimationLibrary[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch all active estimation library items.
-  // Should be used for cost estimation dropdown selections and pricing calculations.
-  return Promise.resolve([]);
-}
+    const item = result[0];
+    return {
+      ...item,
+      economic_price: parseFloat(item.economic_price),
+      standard_price: parseFloat(item.standard_price),
+      premium_price: parseFloat(item.premium_price),
+      estimated_labor_hours: parseFloat(item.estimated_labor_hours)
+    };
+  } catch (error) {
+    console.error('Estimation library item creation failed:', error);
+    throw error;
+  }
+};
 
-export async function getEstimationLibraryByCategory(category: string): Promise<EstimationLibrary[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch estimation items filtered by category.
-  // Should help organize services and parts for easier selection during estimation.
-  return Promise.resolve([]);
-}
+export const getEstimationLibrary = async (): Promise<EstimationLibrary[]> => {
+  try {
+    const results = await db.select()
+      .from(estimationLibraryTable)
+      .where(eq(estimationLibraryTable.is_active, true))
+      .execute();
 
-export async function getEstimationLibraryServices(): Promise<EstimationLibrary[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch only service items from estimation library.
-  // Should filter by is_service = true for service-specific estimations.
-  return Promise.resolve([]);
-}
+    return results.map(item => ({
+      ...item,
+      economic_price: parseFloat(item.economic_price),
+      standard_price: parseFloat(item.standard_price),
+      premium_price: parseFloat(item.premium_price),
+      estimated_labor_hours: parseFloat(item.estimated_labor_hours)
+    }));
+  } catch (error) {
+    console.error('Failed to fetch estimation library:', error);
+    throw error;
+  }
+};
 
-export async function getEstimationLibraryParts(): Promise<EstimationLibrary[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch only spare parts from estimation library.
-  // Should filter by is_service = false for parts-specific estimations.
-  return Promise.resolve([]);
-}
+export const getEstimationLibraryByServiceType = async (serviceType: string): Promise<EstimationLibrary[]> => {
+  try {
+    const results = await db.select()
+      .from(estimationLibraryTable)
+      .where(
+        and(
+          eq(estimationLibraryTable.service_type, serviceType as any),
+          eq(estimationLibraryTable.is_active, true)
+        )
+      )
+      .execute();
 
-export async function updateEstimationLibraryItem(id: number, input: Partial<CreateEstimationLibraryInput>): Promise<EstimationLibrary> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update existing estimation library item.
-  // Should validate pricing consistency across tiers and maintain price history.
-  return Promise.resolve({
-    id,
-    name: input.name ?? 'Placeholder item',
-    category: input.category ?? 'General',
-    description: input.description ?? null,
-    economical_price: input.economical_price ?? 0,
-    standard_price: input.standard_price ?? 0,
-    premium_price: input.premium_price ?? 0,
-    is_service: input.is_service ?? true,
-    is_active: input.is_active ?? true,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as EstimationLibrary);
-}
+    return results.map(item => ({
+      ...item,
+      economic_price: parseFloat(item.economic_price),
+      standard_price: parseFloat(item.standard_price),
+      premium_price: parseFloat(item.premium_price),
+      estimated_labor_hours: parseFloat(item.estimated_labor_hours)
+    }));
+  } catch (error) {
+    console.error('Failed to fetch estimation library by service type:', error);
+    throw error;
+  }
+};
 
-export async function deleteEstimationLibraryItem(id: number): Promise<boolean> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to deactivate an estimation library item.
-  // Should set is_active to false rather than hard delete for historical estimations.
-  return Promise.resolve(true);
-}
+export const updateEstimationLibraryItem = async (id: number, input: Partial<CreateEstimationLibraryInput>): Promise<EstimationLibrary> => {
+  try {
+    const updateData: any = {
+      updated_at: new Date()
+    };
+
+    if (input.service_type !== undefined) updateData.service_type = input.service_type;
+    if (input.service_name !== undefined) updateData.service_name = input.service_name;
+    if (input.economic_price !== undefined) updateData.economic_price = input.economic_price.toString();
+    if (input.standard_price !== undefined) updateData.standard_price = input.standard_price.toString();
+    if (input.premium_price !== undefined) updateData.premium_price = input.premium_price.toString();
+    if (input.estimated_labor_hours !== undefined) updateData.estimated_labor_hours = input.estimated_labor_hours.toString();
+    if (input.description !== undefined) updateData.description = input.description;
+
+    const result = await db.update(estimationLibraryTable)
+      .set(updateData)
+      .where(eq(estimationLibraryTable.id, id))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error('Estimation library item not found');
+    }
+
+    const item = result[0];
+    return {
+      ...item,
+      economic_price: parseFloat(item.economic_price),
+      standard_price: parseFloat(item.standard_price),
+      premium_price: parseFloat(item.premium_price),
+      estimated_labor_hours: parseFloat(item.estimated_labor_hours)
+    };
+  } catch (error) {
+    console.error('Estimation library item update failed:', error);
+    throw error;
+  }
+};
+
+export const deleteEstimationLibraryItem = async (id: number): Promise<boolean> => {
+  try {
+    const result = await db.update(estimationLibraryTable)
+      .set({ 
+        is_active: false,
+        updated_at: new Date()
+      })
+      .where(eq(estimationLibraryTable.id, id))
+      .returning()
+      .execute();
+
+    return result.length > 0;
+  } catch (error) {
+    console.error('Estimation library item deletion failed:', error);
+    throw error;
+  }
+};

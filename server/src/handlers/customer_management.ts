@@ -1,38 +1,82 @@
 
+import { db } from '../db';
+import { customersTable } from '../db/schema';
 import { type CreateCustomerInput, type Customer } from '../schema';
+import { eq, or, ilike } from 'drizzle-orm';
 
-export async function createCustomer(input: CreateCustomerInput): Promise<Customer> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create a new customer record in the database.
-  // Should validate phone number format, check for duplicates, and store customer data.
-  return Promise.resolve({
-    id: 1,
-    name: input.name,
-    phone: input.phone,
-    email: input.email,
-    address: input.address,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as Customer);
-}
+export const createCustomer = async (input: CreateCustomerInput): Promise<Customer> => {
+  try {
+    // Check if phone number already exists
+    const existingCustomer = await db.select()
+      .from(customersTable)
+      .where(eq(customersTable.phone, input.phone))
+      .execute();
 
-export async function getCustomers(): Promise<Customer[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch all customers with their basic information.
-  // Should include pagination and search functionality for large datasets.
-  return Promise.resolve([]);
-}
+    if (existingCustomer.length > 0) {
+      throw new Error(`Customer with phone number ${input.phone} already exists`);
+    }
 
-export async function getCustomerById(id: number): Promise<Customer | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch a specific customer by ID with their vehicles.
-  // Should include related vehicle information and service history.
-  return Promise.resolve(null);
-}
+    // Insert customer record
+    const result = await db.insert(customersTable)
+      .values({
+        name: input.name,
+        phone: input.phone,
+        email: input.email || null,
+        address: input.address || null
+      })
+      .returning()
+      .execute();
 
-export async function searchCustomers(query: string): Promise<Customer[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to search customers by name, phone, or license plate.
-  // Should perform fuzzy search across customer and vehicle data.
-  return Promise.resolve([]);
-}
+    return result[0];
+  } catch (error) {
+    console.error('Customer creation failed:', error);
+    throw error;
+  }
+};
+
+export const getCustomers = async (): Promise<Customer[]> => {
+  try {
+    const customers = await db.select()
+      .from(customersTable)
+      .execute();
+
+    return customers;
+  } catch (error) {
+    console.error('Failed to fetch customers:', error);
+    throw error;
+  }
+};
+
+export const getCustomerById = async (id: number): Promise<Customer | null> => {
+  try {
+    const customers = await db.select()
+      .from(customersTable)
+      .where(eq(customersTable.id, id))
+      .execute();
+
+    return customers.length > 0 ? customers[0] : null;
+  } catch (error) {
+    console.error('Failed to fetch customer by ID:', error);
+    throw error;
+  }
+};
+
+export const searchCustomers = async (query: string): Promise<Customer[]> => {
+  try {
+    const customers = await db.select()
+      .from(customersTable)
+      .where(
+        or(
+          ilike(customersTable.name, `%${query}%`),
+          ilike(customersTable.phone, `%${query}%`),
+          ilike(customersTable.email, `%${query}%`)
+        )
+      )
+      .execute();
+
+    return customers;
+  } catch (error) {
+    console.error('Customer search failed:', error);
+    throw error;
+  }
+};

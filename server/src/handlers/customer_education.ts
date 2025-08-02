@@ -1,41 +1,67 @@
 
+import { db } from '../db';
+import { customerEducationTable, serviceOrdersTable } from '../db/schema';
 import { type CreateCustomerEducationInput, type CustomerEducation } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function createCustomerEducation(input: CreateCustomerEducationInput, educatorId: number): Promise<CustomerEducation> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to record customer education session and outcome.
-  // Should validate service order status, record DEAL/NO_DEAL outcome, and store agreed summary.
-  return Promise.resolve({
-    id: 1,
-    service_order_id: input.service_order_id,
-    educator_id: educatorId,
-    outcome: input.outcome,
-    agreed_analysis_summary: input.agreed_analysis_summary,
-    notes: input.notes,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as CustomerEducation);
-}
+export const createCustomerEducation = async (input: CreateCustomerEducationInput): Promise<CustomerEducation> => {
+  try {
+    // Verify service order exists
+    const serviceOrder = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.id, input.service_order_id))
+      .execute();
 
-export async function getCustomerEducationByServiceOrder(serviceOrderId: number): Promise<CustomerEducation | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch customer education data for a specific service order.
-  // Should include educator information and outcome details.
-  return Promise.resolve(null);
-}
+    if (serviceOrder.length === 0) {
+      throw new Error('Service order not found');
+    }
 
-export async function updateCustomerEducation(id: number, input: Partial<CreateCustomerEducationInput>): Promise<CustomerEducation> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update customer education outcome and summary.
-  // Should validate educator permissions and track outcome changes.
-  return Promise.resolve({
-    id,
-    service_order_id: 1,
-    educator_id: 1,
-    outcome: input.outcome ?? 'PENDING',
-    agreed_analysis_summary: input.agreed_analysis_summary ?? null,
-    notes: input.notes ?? null,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as CustomerEducation);
-}
+    // Insert customer education record
+    const result = await db.insert(customerEducationTable)
+      .values({
+        service_order_id: input.service_order_id,
+        explanation_provided: input.explanation_provided,
+        customer_questions: input.customer_questions ?? null,
+        understanding_level: input.understanding_level,
+        additional_notes: input.additional_notes ?? null,
+        educated_by_id: input.educated_by_id
+      })
+      .returning()
+      .execute();
+
+    const record = result[0];
+    
+    // Convert date fields to proper Date objects
+    return {
+      ...record,
+      education_date: new Date(record.education_date)
+    };
+  } catch (error) {
+    console.error('Customer education creation failed:', error);
+    throw error;
+  }
+};
+
+export const getCustomerEducationByServiceOrder = async (serviceOrderId: number): Promise<CustomerEducation | null> => {
+  try {
+    const result = await db.select()
+      .from(customerEducationTable)
+      .where(eq(customerEducationTable.service_order_id, serviceOrderId))
+      .execute();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    const record = result[0];
+    
+    // Convert date fields to proper Date objects
+    return {
+      ...record,
+      education_date: new Date(record.education_date)
+    };
+  } catch (error) {
+    console.error('Failed to fetch customer education:', error);
+    throw error;
+  }
+};

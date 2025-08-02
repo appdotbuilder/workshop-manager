@@ -1,76 +1,203 @@
 
-import { type CreateServiceOrderInput, type ServiceOrder } from '../schema';
+import { db } from '../db';
+import { serviceOrdersTable, customersTable, vehiclesTable, usersTable } from '../db/schema';
+import { type CreateServiceOrderInput, type ServiceOrder, type OrderStatus } from '../schema';
+import { eq, desc, and } from 'drizzle-orm';
 
-export async function createServiceOrder(input: CreateServiceOrderInput, createdById: number): Promise<ServiceOrder> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create a new service order (PKB form) with customer intake.
-  // Should generate unique order number, validate customer/vehicle, and set initial status.
-  const orderNumber = `PKB-${Date.now()}`; // Placeholder order number generation
-  
-  return Promise.resolve({
-    id: 1,
-    order_number: orderNumber,
-    customer_id: input.customer_id,
-    vehicle_id: input.vehicle_id,
-    status: 'INTAKE',
-    service_types: input.service_types,
-    complaints: input.complaints,
-    referral_source: input.referral_source,
-    body_defects: input.body_defects,
-    other_defects: input.other_defects,
-    assigned_mechanic_id: input.assigned_mechanic_id,
-    created_by_id: createdById,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as ServiceOrder);
-}
+export const createServiceOrder = async (input: CreateServiceOrderInput): Promise<ServiceOrder> => {
+  try {
+    // Verify customer exists
+    const customer = await db.select()
+      .from(customersTable)
+      .where(eq(customersTable.id, input.customer_id))
+      .execute();
+    
+    if (customer.length === 0) {
+      throw new Error('Customer not found');
+    }
 
-export async function getServiceOrders(): Promise<ServiceOrder[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch all service orders with basic information.
-  // Should include customer, vehicle, and assigned mechanic details with pagination.
-  return Promise.resolve([]);
-}
+    // Verify vehicle exists and belongs to customer
+    const vehicle = await db.select()
+      .from(vehiclesTable)
+      .where(and(
+        eq(vehiclesTable.id, input.vehicle_id),
+        eq(vehiclesTable.customer_id, input.customer_id)
+      ))
+      .execute();
+    
+    if (vehicle.length === 0) {
+      throw new Error('Vehicle not found or does not belong to customer');
+    }
 
-export async function getServiceOrderById(id: number): Promise<ServiceOrder | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch a complete service order with all related data.
-  // Should include customer, vehicle, all process steps, and current status.
-  return Promise.resolve(null);
-}
+    // Verify assigned mechanic exists if provided
+    if (input.assigned_mechanic_id) {
+      const mechanic = await db.select()
+        .from(usersTable)
+        .where(eq(usersTable.id, input.assigned_mechanic_id))
+        .execute();
+      
+      if (mechanic.length === 0) {
+        throw new Error('Assigned mechanic not found');
+      }
+    }
 
-export async function updateServiceOrderStatus(id: number, status: string): Promise<ServiceOrder> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update service order status and track workflow progress.
-  // Should validate status transitions and update timestamps appropriately.
-  return Promise.resolve({
-    id,
-    order_number: 'PKB-placeholder',
-    customer_id: 1,
-    vehicle_id: 1,
-    status: status as any,
-    service_types: [],
-    complaints: 'Placeholder complaint',
-    referral_source: null,
-    body_defects: null,
-    other_defects: null,
-    assigned_mechanic_id: null,
-    created_by_id: 1,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as ServiceOrder);
-}
+    // Verify created_by user exists
+    const creator = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, input.created_by_id))
+      .execute();
+    
+    if (creator.length === 0) {
+      throw new Error('Creator user not found');
+    }
 
-export async function getServiceOrdersByMechanic(mechanicId: number): Promise<ServiceOrder[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch service orders assigned to a specific mechanic.
-  // Should filter by mechanic ID and include current status for dashboard display.
-  return Promise.resolve([]);
-}
+    // Generate unique order number
+    const timestamp = Date.now();
+    const orderNumber = `PKB-${timestamp}`;
 
-export async function getServiceOrdersByStatus(status: string): Promise<ServiceOrder[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch service orders by their current status.
-  // Should be used for role-based dashboards and workflow management.
-  return Promise.resolve([]);
-}
+    // Create service order
+    const result = await db.insert(serviceOrdersTable)
+      .values({
+        order_number: orderNumber,
+        customer_id: input.customer_id,
+        vehicle_id: input.vehicle_id,
+        service_types: input.service_types, // Store array directly as JSONB
+        complaints: input.complaints,
+        referral_source: input.referral_source || null,
+        body_defects: input.body_defects || null,
+        other_defects: input.other_defects || null,
+        assigned_mechanic_id: input.assigned_mechanic_id || null,
+        created_by_id: input.created_by_id,
+        status: 'PENDING_INITIAL_CHECK'
+      })
+      .returning()
+      .execute();
+
+    const serviceOrder = result[0];
+    return {
+      ...serviceOrder,
+      service_types: serviceOrder.service_types as any // JSONB field returns the array directly
+    };
+  } catch (error) {
+    console.error('Service order creation failed:', error);
+    throw error;
+  }
+};
+
+export const getServiceOrders = async (): Promise<ServiceOrder[]> => {
+  try {
+    const results = await db.select()
+      .from(serviceOrdersTable)
+      .orderBy(desc(serviceOrdersTable.created_at))
+      .execute();
+
+    return results.map(order => ({
+      ...order,
+      service_types: order.service_types as any // JSONB field returns the array directly
+    }));
+  } catch (error) {
+    console.error('Failed to fetch service orders:', error);
+    throw error;
+  }
+};
+
+export const getServiceOrderById = async (id: number): Promise<ServiceOrder | null> => {
+  try {
+    const results = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.id, id))
+      .execute();
+
+    if (results.length === 0) {
+      return null;
+    }
+
+    const serviceOrder = results[0];
+    return {
+      ...serviceOrder,
+      service_types: serviceOrder.service_types as any // JSONB field returns the array directly
+    };
+  } catch (error) {
+    console.error('Failed to fetch service order:', error);
+    throw error;
+  }
+};
+
+export const updateServiceOrderStatus = async (id: number, status: OrderStatus): Promise<ServiceOrder> => {
+  try {
+    // Verify service order exists
+    const existing = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.id, id))
+      .execute();
+    
+    if (existing.length === 0) {
+      throw new Error('Service order not found');
+    }
+
+    // Update status
+    const result = await db.update(serviceOrdersTable)
+      .set({
+        status: status,
+        updated_at: new Date()
+      })
+      .where(eq(serviceOrdersTable.id, id))
+      .returning()
+      .execute();
+
+    const serviceOrder = result[0];
+    return {
+      ...serviceOrder,
+      service_types: serviceOrder.service_types as any // JSONB field returns the array directly
+    };
+  } catch (error) {
+    console.error('Failed to update service order status:', error);
+    throw error;
+  }
+};
+
+export const getServiceOrdersByMechanic = async (mechanicId: number): Promise<ServiceOrder[]> => {
+  try {
+    // Verify mechanic exists
+    const mechanic = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, mechanicId))
+      .execute();
+    
+    if (mechanic.length === 0) {
+      throw new Error('Mechanic not found');
+    }
+
+    const results = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.assigned_mechanic_id, mechanicId))
+      .orderBy(desc(serviceOrdersTable.created_at))
+      .execute();
+
+    return results.map(order => ({
+      ...order,
+      service_types: order.service_types as any // JSONB field returns the array directly
+    }));
+  } catch (error) {
+    console.error('Failed to fetch service orders by mechanic:', error);
+    throw error;
+  }
+};
+
+export const getServiceOrdersByStatus = async (status: OrderStatus): Promise<ServiceOrder[]> => {
+  try {
+    const results = await db.select()
+      .from(serviceOrdersTable)
+      .where(eq(serviceOrdersTable.status, status))
+      .orderBy(desc(serviceOrdersTable.created_at))
+      .execute();
+
+    return results.map(order => ({
+      ...order,
+      service_types: order.service_types as any // JSONB field returns the array directly
+    }));
+  } catch (error) {
+    console.error('Failed to fetch service orders by status:', error);
+    throw error;
+  }
+};

@@ -1,55 +1,118 @@
 
+import { db } from '../db';
+import { analysisTemplatesTable } from '../db/schema';
 import { type CreateAnalysisTemplateInput, type AnalysisTemplate } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
-export async function createAnalysisTemplate(input: CreateAnalysisTemplateInput, createdById: number): Promise<AnalysisTemplate> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create reusable analysis templates for mechanics.
-  // Should validate service type, store template content, and set active status.
-  return Promise.resolve({
-    id: 1,
-    name: input.name,
-    service_type: input.service_type,
-    template_content: input.template_content,
-    created_by_id: createdById,
-    is_active: input.is_active,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as AnalysisTemplate);
-}
+export const createAnalysisTemplate = async (input: CreateAnalysisTemplateInput): Promise<AnalysisTemplate> => {
+  try {
+    const result = await db.insert(analysisTemplatesTable)
+      .values({
+        name: input.name,
+        service_type: input.service_type,
+        template_content: input.template_content,
+        created_by_id: input.created_by_id
+      })
+      .returning()
+      .execute();
 
-export async function getAnalysisTemplates(): Promise<AnalysisTemplate[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch all active analysis templates.
-  // Should filter by service type and active status for dropdown selections.
-  return Promise.resolve([]);
-}
+    return result[0];
+  } catch (error) {
+    console.error('Analysis template creation failed:', error);
+    throw error;
+  }
+};
 
-export async function getAnalysisTemplatesByServiceType(serviceType: string): Promise<AnalysisTemplate[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch templates filtered by specific service type.
-  // Should be used when mechanics are working on specific service types.
-  return Promise.resolve([]);
-}
+export const getAnalysisTemplates = async (): Promise<AnalysisTemplate[]> => {
+  try {
+    const results = await db.select()
+      .from(analysisTemplatesTable)
+      .where(eq(analysisTemplatesTable.is_active, true))
+      .execute();
 
-export async function updateAnalysisTemplate(id: number, input: Partial<CreateAnalysisTemplateInput>): Promise<AnalysisTemplate> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to update existing analysis template.
-  // Should validate permissions and maintain version history for templates.
-  return Promise.resolve({
-    id,
-    name: input.name ?? 'Placeholder template',
-    service_type: input.service_type ?? 'AC',
-    template_content: input.template_content ?? 'Placeholder content',
-    created_by_id: 1,
-    is_active: input.is_active ?? true,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as AnalysisTemplate);
-}
+    return results;
+  } catch (error) {
+    console.error('Fetching analysis templates failed:', error);
+    throw error;
+  }
+};
 
-export async function deleteAnalysisTemplate(id: number): Promise<boolean> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to deactivate an analysis template.
-  // Should set is_active to false rather than hard delete for data integrity.
-  return Promise.resolve(true);
-}
+export const getAnalysisTemplatesByServiceType = async (serviceType: string): Promise<AnalysisTemplate[]> => {
+  try {
+    const results = await db.select()
+      .from(analysisTemplatesTable)
+      .where(
+        and(
+          eq(analysisTemplatesTable.service_type, serviceType as any),
+          eq(analysisTemplatesTable.is_active, true)
+        )
+      )
+      .execute();
+
+    return results;
+  } catch (error) {
+    console.error('Fetching analysis templates by service type failed:', error);
+    throw error;
+  }
+};
+
+export const updateAnalysisTemplate = async (id: number, input: Partial<CreateAnalysisTemplateInput>): Promise<AnalysisTemplate | null> => {
+  try {
+    const updateData: any = {
+      updated_at: new Date()
+    };
+
+    if (input.name !== undefined) {
+      updateData.name = input.name;
+    }
+    if (input.service_type !== undefined) {
+      updateData.service_type = input.service_type;
+    }
+    if (input.template_content !== undefined) {
+      updateData.template_content = input.template_content;
+    }
+
+    const result = await db.update(analysisTemplatesTable)
+      .set(updateData)
+      .where(eq(analysisTemplatesTable.id, id))
+      .returning()
+      .execute();
+
+    return result.length > 0 ? result[0] : null;
+  } catch (error) {
+    console.error('Analysis template update failed:', error);
+    throw error;
+  }
+};
+
+export const deleteAnalysisTemplate = async (id: number): Promise<boolean> => {
+  try {
+    const result = await db.update(analysisTemplatesTable)
+      .set({ 
+        is_active: false,
+        updated_at: new Date()
+      })
+      .where(eq(analysisTemplatesTable.id, id))
+      .returning()
+      .execute();
+
+    return result.length > 0;
+  } catch (error) {
+    console.error('Analysis template deletion failed:', error);
+    throw error;
+  }
+};
+
+export const getAnalysisTemplateById = async (id: number): Promise<AnalysisTemplate | null> => {
+  try {
+    const results = await db.select()
+      .from(analysisTemplatesTable)
+      .where(eq(analysisTemplatesTable.id, id))
+      .execute();
+
+    return results.length > 0 ? results[0] : null;
+  } catch (error) {
+    console.error('Fetching analysis template by ID failed:', error);
+    throw error;
+  }
+};

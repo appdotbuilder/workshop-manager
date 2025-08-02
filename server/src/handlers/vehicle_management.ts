@@ -1,33 +1,76 @@
 
+import { db } from '../db';
+import { vehiclesTable, customersTable } from '../db/schema';
 import { type CreateVehicleInput, type Vehicle } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function createVehicle(input: CreateVehicleInput): Promise<Vehicle> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to create a new vehicle record linked to a customer.
-  // Should validate license plate format, check for duplicates, and link to customer.
-  return Promise.resolve({
-    id: 1,
-    license_plate: input.license_plate,
-    make: input.make,
-    model: input.model,
-    year: input.year,
-    color: input.color,
-    customer_id: input.customer_id,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as Vehicle);
-}
+export const createVehicle = async (input: CreateVehicleInput): Promise<Vehicle> => {
+  try {
+    // Verify customer exists
+    const customer = await db.select()
+      .from(customersTable)
+      .where(eq(customersTable.id, input.customer_id))
+      .execute();
 
-export async function getVehiclesByCustomer(customerId: number): Promise<Vehicle[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch all vehicles belonging to a specific customer.
-  // Should include service history count and last service date for each vehicle.
-  return Promise.resolve([]);
-}
+    if (customer.length === 0) {
+      throw new Error('Customer not found');
+    }
 
-export async function getVehicleById(id: number): Promise<Vehicle | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to fetch a specific vehicle with its service history.
-  // Should include customer information and complete service order history.
-  return Promise.resolve(null);
-}
+    // Insert vehicle record
+    const result = await db.insert(vehiclesTable)
+      .values({
+        customer_id: input.customer_id,
+        make: input.make,
+        model: input.model,
+        year: input.year,
+        license_plate: input.license_plate,
+        vin: input.vin || null
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Vehicle creation failed:', error);
+    throw error;
+  }
+};
+
+export const getVehiclesByCustomer = async (customerId: number): Promise<Vehicle[]> => {
+  try {
+    // Verify customer exists
+    const customer = await db.select()
+      .from(customersTable)
+      .where(eq(customersTable.id, customerId))
+      .execute();
+
+    if (customer.length === 0) {
+      throw new Error('Customer not found');
+    }
+
+    // Get all vehicles for the customer
+    const vehicles = await db.select()
+      .from(vehiclesTable)
+      .where(eq(vehiclesTable.customer_id, customerId))
+      .execute();
+
+    return vehicles;
+  } catch (error) {
+    console.error('Failed to get vehicles by customer:', error);
+    throw error;
+  }
+};
+
+export const getVehicleById = async (id: number): Promise<Vehicle | null> => {
+  try {
+    const vehicles = await db.select()
+      .from(vehiclesTable)
+      .where(eq(vehiclesTable.id, id))
+      .execute();
+
+    return vehicles.length > 0 ? vehicles[0] : null;
+  } catch (error) {
+    console.error('Failed to get vehicle by id:', error);
+    throw error;
+  }
+};
